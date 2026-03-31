@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>2D Artificial Horizon + G</title>
+
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+<style>
+body {
+  margin: 0;
+  overflow: hidden;
+  background: black;
+}
+canvas {
+  display: block;
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="hud"></canvas>
+
+<script>
+
+const canvas = document.getElementById("hud");
+const ctx = canvas.getContext("2d");
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resize);
+resize();
+
+// ---------------- AUDIO ----------------
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+const audioCtx = new AudioCtx();
+
+let audioUnlocked = false;
+let alarmCooldown = 0;
+
+async function unlockAudio() {
+  if (audioUnlocked) return;
+
+  await audioCtx.resume();
+
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+
+  osc.frequency.value = 800;
+  osc.type = "square";
+  gain.gain.value = 0.05;
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  osc.start();
+  osc.stop(audioCtx.currentTime + 0.1);
+
+  audioUnlocked = true;
+}
+
+window.addEventListener("click", unlockAudio);
+window.addEventListener("touchstart", unlockAudio);
+
+function beep(freq = 900, duration = 0.12) {
+  if (!audioUnlocked) return;
+
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+
+  osc.frequency.value = freq;
+  osc.type = "square";
+
+  gain.gain.value = 0.08;
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+// ---------------- STATE ----------------
+let roll = 0;
+let pitch = 0;
+
+let sRoll = 0;
+let sPitch = 0;
+
+let ax = 0, ay = 0, az = 1;
+let gForce = 1;
+
+let warnBlink = 0;
+
+// ---------------- MQTT ----------------
+const client = mqtt.connect("wss://broker.hivemq.com:8884/mqtt");
+
+client.on("connect", () => {
+  client.subscribe("wio/horizon");
+});
+
+client.on("message", (t, msg) => {
+
+  let d;
+  try {
+    d = JSON.parse(msg.toString());
+  } catch (e) {
+    return;
+  }
+
+  if (typeof d.roll === "number") roll = normalizeAngle(d.roll + 180);
+  if (typeof d.pitch === "number") pitch = d.pitch;
+
+  if (typeof d.ax === "number") ax = d.ax;
+  if (typeof d.ay === "number") ay = d.ay;
+  if (typeof d.az === "number") az = d.az;
+});
+
+// ---------------- UTILS ----------------
+function normalizeAngle(a) {
+  a = a % 360;
+  if (a > 180) a -= 360;
+  if (a < -180) a += 360;
+  return a;
+}
+
+function calcG(ax, ay, az) {
+  return Math.sqrt(ax*ax + ay*ay + az*az);
+}
+
+// ---------------- WORLD ----------------
+function drawWorld(w, h, rollDeg, pitchVal) {
+
+  const cx = w / 2;
+  const scale = 10;
+
+  ctx.save();
+  ctx.translate(cx, h / 2);
+
+  ctx.rotate(rollDeg * Math.PI / 180);
+  ctx.translate(0, pitchVal * scale);
+
+  ctx.fillStyle = "#4da6ff";
+  ctx.fillRect(-5000, -5000, 10000, 5000);
+
+  ctx.fillStyle = "#8B4513";
+  ctx.fillRect(-5000, 0, 10000, 5000);
+
+  ctx.strokeStyle = "white";
+  ctx.beginPath();
+  ctx.moveTo(-5000, 0);
+  ctx.lineTo(5000, 0);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// ---------------- LADDER ----------------
+function drawLadder(w, h, rollDeg, pitchVal) {
+
+  const scale = 10;
+
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  ctx.rotate(rollDeg * Math.PI / 180);
+
+  ctx.strokeStyle = "#00ff88";
+  ctx.fillStyle = "#00ff88";
+  ctx.font = "14px monospace";
+
+  for (let i = -90; i <= 90; i += 10) {
+
+    const y = -(i - pitchVal) * scale;
+
+    ctx.beginPath();
+    if (i === 0) {
+      ctx.moveTo(-80, y);
+      ctx.lineTo(80, y);
+    } else {
+      ctx.moveTo(-50, y);
+      ctx.lineTo(50, y);
+    }
+    ctx.stroke();
+
+    ctx.fillText(i, 90, y + 5);
+  }
+
+  ctx.restore();
+}
+
+// ---------------- AIRCRAFT ----------------
+function drawAircraft(w, h) {
+
+  const cx = w / 2;
+  const cy = h / 2;
+
+  ctx.strokeStyle = "#00ff88";
+  ctx.lineWidth = 2;
+
+  ctx.beginPath();
+  ctx.moveTo(cx - 40, cy);
+  ctx.lineTo(cx - 10, cy);
+  ctx.moveTo(cx + 10, cy);
+  ctx.lineTo(cx + 40, cy);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(cx - 10, cy);
+  ctx.lineTo(cx + 10, cy);
+  ctx.stroke();
+}
+
+// ---------------- WARNINGS + AUDIO ----------------
+function drawWarnings(w, h, pitchVal, rollVal) {
+
+  let warning = null;
+
+  if (pitchVal < -30) warning = "PULL UP";
+  else if (pitchVal > 30) warning = "STALL";
+
+  if (Math.abs(rollVal) > 45) warning = "BANK ANGLE";
+
+  if (gForce > 2.0) warning = "OVER G";
+
+  if (!warning) {
+    alarmCooldown = 0;
+    return;
+  }
+
+  if (alarmCooldown <= 0) {
+    beep(900, 0.12);
+    alarmCooldown = 12;
+  } else {
+    alarmCooldown--;
+  }
+
+  warnBlink += 0.15;
+  const visible = Math.sin(warnBlink) > 0;
+  if (!visible) return;
+
+  ctx.save();
+  ctx.fillStyle = "#00ff00";
+  ctx.font = "bold 60px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(warning, w / 2, h / 2 - 120);
+  ctx.restore();
+}
+
+// ---------------- HUD ----------------
+function drawHUD(w, h) {
+
+  ctx.fillStyle = "#00ff88";
+  ctx.font = "14px monospace";
+
+  ctx.fillText("ROLL: " + sRoll.toFixed(1), 20, 30);
+  ctx.fillText("PITCH: " + sPitch.toFixed(1), 20, 50);
+  ctx.fillText("G: " + gForce.toFixed(2), 20, 70);
+}
+
+// ---------------- LOOP ----------------
+function animate() {
+
+  requestAnimationFrame(animate);
+
+  const w = canvas.width;
+  const h = canvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+
+  let dr = roll - sRoll;
+  if (dr > 180) dr -= 360;
+  if (dr < -180) dr += 360;
+
+  sRoll += dr * 0.1;
+  sPitch += (pitch - sPitch) * 0.1;
+
+  gForce = calcG(ax, ay, az);
+
+  drawWorld(w, h, sRoll, sPitch);
+  drawLadder(w, h, sRoll, sPitch);
+  drawAircraft(w, h);
+  drawHUD(w, h);
+  drawWarnings(w, h, sPitch, sRoll);
+
+}
+
+animate();
+
+</script>
+
+</body>
+</html>
