@@ -4,20 +4,20 @@
 
 <head>
 
-<meta charset="utf-8">
-<title>Artificial Horizon</title>
-<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>  // Imported MQTT library
+ <meta charset="utf-8">
+ <title>Artificial Horizon</title>
+ <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>  <!-- Imported MQTT library -->
 
-<style>
-body {
-  margin: 0;
-  overflow: hidden;
-  background: black;
-}
-canvas {
-  display: block;
-}
-</style>
+ <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: black;
+    }
+    canvas {
+      display: block;
+    }
+  </style>
 
 </head>
 
@@ -39,15 +39,17 @@ function sizeChange() {
 window.addEventListener("resize", sizeChange);
 sizeChange();
 
-let roll = 0;  // orientation values
+let roll = 0;  // sensor values from MQTT
 let pitch = 0;
-let stabilizedRoll = 0;
+let stabilizedRoll = 0;  // stabilized values
 let stabilizedPitch = 0;
 let ax = 0, ay = 0, az = 1;  // accelerometer data
 let gForce = 1;
 
 let error = 0;  // variables for warnings
 let cooldown = 0;
+
+// MQTT
 
 const client = mqtt.connect("wss://broker.hivemq.com:8884/mqtt");
 
@@ -56,17 +58,18 @@ client.on("connect", () => {
 });
 
 client.on("message", (t, msg) => {
-  let dowloadedData;
+  let downloadedData;
   try {
-    dowloadedData = JSON.parse(msg.toString());  // data conversion
+    downloadedData = JSON.parse(msg.toString());  // data conversion
   } catch (e) {
     return;
   }
-  if (typeof dowloadedData.roll === "number") roll = angleLimits(dowloadedData.roll + 180);  // viarable updates
-  if (typeof dowloadedData.pitch === "number") pitch = dowloadedData.pitch;
-  if (typeof dowloadedData.ax === "number") ax = dowloadedData.ax;
-  if (typeof dowloadedData.ay === "number") ay = dowloadedData.ay;
-  if (typeof dowloadedData.az === "number") az = dowloadedData.az;
+  // +180 because the sensor is mounted upside down on the board
+  if (typeof downloadedData.roll === "number") roll = angleLimits(downloadedData.roll + 180);  // viarable updates
+  if (typeof downloadedData.pitch === "number") pitch = downloadedData.pitch;
+  if (typeof downloadedData.ax === "number") ax = downloadedData.ax;
+  if (typeof downloadedData.ay === "number") ay = downloadedData.ay;
+  if (typeof downloadedData.az === "number") az = downloadedData.az;
 });
 
 function angleLimits(a) {
@@ -81,6 +84,8 @@ function calculateFg(ax, ay, az) {
 
   return Math.sqrt(ax*ax + ay*ay + az*az);
 }
+
+// Visualisation 
 
 function visualiseHorizon(w, h, rollDeg, pitchVal) {
 
@@ -196,6 +201,8 @@ function visualiseHUD(w, h) {
   ctx.fillText("PITCH: " + stabilizedPitch.toFixed(1), 20, 50);
   ctx.fillText("G: " + gForce.toFixed(2), 20, 70);
 }
+
+// main loop
 
 function animate() {
 

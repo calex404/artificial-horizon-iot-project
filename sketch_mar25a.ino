@@ -3,24 +3,19 @@
 #include "LIS3DHTR.h"
 #include <Wire.h>
 
-// ---------------- WIFI ----------------
-const char ssid[] = "IoT_course";
+const char ssid[] = "IoT_course";  // WiFi network
 const char password[] = "IOTisMAGIC777";
 
-// ---------------- MQTT ----------------
-const char mqtt_broker[] = "broker.hivemq.com"; 
+const char mqtt_broker[] = "broker.hivemq.com";  // MQTT server
 const char topic[] = "wio/horizon";
 
 WiFiClient net;
 MQTTClient client(512);
 
-// ---------------- SENSOR ----------------
-LIS3DHTR<TwoWire> lis;
+LIS3DHTR<TwoWire> lis;  // built-in accelerometer
 
-// ---------------- TIMING ----------------
 unsigned long lastSend = 0;
 
-// ---------------- WIFI ----------------
 void connectWiFi() {
   Serial.print("Connecting WiFi");
   WiFi.begin(ssid, password);
@@ -30,10 +25,9 @@ void connectWiFi() {
     Serial.print(".");
   }
 
-  Serial.println("\nWiFi connected");
+  Serial.println("\nWiFi successfully connected");
 }
 
-// ---------------- MQTT ----------------
 void connectMQTT() {
   Serial.print("Connecting MQTT");
 
@@ -42,55 +36,49 @@ void connectMQTT() {
     delay(1000);
   }
 
-  Serial.println("\nMQTT connected");
+  Serial.println("\nMQTT successfully connected");
 }
 
-// ---------------- SETUP ----------------
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(115200); // initializes USB serial communication
   delay(1000);
 
-  lis.begin(Wire1);
+  lis.begin(Wire1);  // initializes the accelerometer
   lis.setOutputDataRate(LIS3DHTR_DATARATE_50HZ);
 
   connectWiFi();
-  client.begin(mqtt_broker, net);
+  client.begin(mqtt_broker, net); // link MQTT client to the broker address
   connectMQTT();
 }
 
-// ---------------- LOOP ----------------
 void loop() {
 
-  client.loop();
+  client.loop(); // keeps MQTT connection
 
   if (!client.connected()) {
     connectMQTT();
   }
 
-  // ---------------- ACCEL ----------------
-  float ax = lis.getAccelerationX();
+  float ax = lis.getAccelerationX();  // read acceleration data
   float ay = lis.getAccelerationY();
   float az = lis.getAccelerationZ();
 
-  // ---------------- ATTITUDE ----------------
-  float roll  = atan2(ay, az) * 57.2958;
+  float roll  = atan2(ay, az) * 57.2958;  // Calculate roll and pitch
   float pitch = atan2(-ax, sqrt(ay * ay + az * az)) * 57.2958;
 
-  // ---------------- G FORCE ----------------
-  float gForce = sqrt(ax * ax + ay * ay + az * az);
+  float gForce = sqrt(ax * ax + ay * ay + az * az);  // calculating G
 
-  // ---------------- SEND ----------------
   if (millis() - lastSend > 50) {
     lastSend = millis();
 
     char msg[160];
 
-    sprintf(msg,
+    sprintf(msg,  // data conversion
       "{\"roll\":%.2f,\"pitch\":%.2f,\"ax\":%.3f,\"ay\":%.3f,\"az\":%.3f}",
       roll, pitch, ax, ay, az
     );
 
-    client.publish(topic, msg);
+    client.publish(topic, msg);  // sending data to the broker
 
     Serial.println(msg);
   }
