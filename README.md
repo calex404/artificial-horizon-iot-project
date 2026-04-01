@@ -23,6 +23,5 @@ The goal of this project was to recreate a flight instrument known as an artific
 
 ---
 
-## Authors
-**Name:** Valéria Ondrejková (calex404), Antonín Vaňha
+**Name:** Valéria Ondrejková (calex404), Antonín Vaňha  
 **Date:** March 2026
