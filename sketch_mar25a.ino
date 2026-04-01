@@ -3,22 +3,23 @@
 #include "LIS3DHTR.h"
 #include <Wire.h>
 
-const char ssid[] = "IoT_course";  // WiFi network
+const char wifiName[] = "IoT_course";  // WiFi
 const char password[] = "IOTisMAGIC777";
 
-const char mqtt_broker[] = "broker.hivemq.com";  // MQTT server
+const char brokerAddress[] = "broker.hivemq.com";  // MQTT
 const char topic[] = "wio/horizon";
 
 WiFiClient net;
 MQTTClient client(512);
 
-LIS3DHTR<TwoWire> lis;  // built-in accelerometer
+LIS3DHTR<TwoWire> accelerometer;  // built-in accelerometer in Wio Terminal
 
 unsigned long lastSend = 0;
 
+
 void connectWiFi() {
   Serial.print("Connecting WiFi");
-  WiFi.begin(ssid, password);
+  WiFi.begin(wifiName, password);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -40,46 +41,41 @@ void connectMQTT() {
 }
 
 void setup() {
-  Serial.begin(115200); // initializes USB serial communication
+  Serial.begin(115200);  // initializes USB serial communication
   delay(1000);
 
-  lis.begin(Wire1);  // initializes the accelerometer
-  lis.setOutputDataRate(LIS3DHTR_DATARATE_50HZ);
+  accelerometer.begin(Wire1);  // initializes the accelerometer
+  accelerometer.setOutputDataRate(LIS3DHTR_DATARATE_50HZ);
 
   connectWiFi();
-  client.begin(mqtt_broker, net); // link MQTT client to the broker address
+  client.begin(brokerAddress, net);
   connectMQTT();
 }
 
 void loop() {
-
-  client.loop(); // keeps MQTT connection
+  client.loop();  // keeps MQTT connection alive
 
   if (!client.connected()) {
     connectMQTT();
   }
 
-  float ax = lis.getAccelerationX();  // read acceleration data
-  float ay = lis.getAccelerationY();
-  float az = lis.getAccelerationZ();
-
-  float roll  = atan2(ay, az) * 57.2958;  // Calculate roll and pitch
+  float ax = accelerometer.getAccelerationX();    // read acceleration data
+  float ay = accelerometer.getAccelerationY();
+  float az = accelerometer.getAccelerationZ();    
+  float roll  = atan2(ay, az) * 57.2958;    // calculate roll and pitch — 57.2958 = 180/pi (rad to deg)
   float pitch = atan2(-ax, sqrt(ay * ay + az * az)) * 57.2958;
-
   float gForce = sqrt(ax * ax + ay * ay + az * az);  // calculating G
 
-  if (millis() - lastSend > 50) {
+  if (millis() - lastSend > 50) {    
     lastSend = millis();
 
-    char msg[160];
-
-    sprintf(msg,  // data conversion
+    char message[160];
+    sprintf(message,
       "{\"roll\":%.2f,\"pitch\":%.2f,\"ax\":%.3f,\"ay\":%.3f,\"az\":%.3f}",
       roll, pitch, ax, ay, az
     );
 
-    client.publish(topic, msg);  // sending data to the broker
-
-    Serial.println(msg);
+    client.publish(topic, message);  // sending data to the broker
+    Serial.println(message);
   }
 }
